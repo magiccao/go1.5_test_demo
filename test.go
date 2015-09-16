@@ -10,7 +10,13 @@ import (
 
 import "./slab2"
 
-var addrs = make(map[unsafe.Pointer]struct{})
+var addrs = struct {
+	addrs map[unsafe.Pointer]struct{}
+	sync.Mutex
+}{
+	make(map[unsafe.Pointer]struct{}),
+	sync.Mutex{},
+}
 
 func main() {
 	var wg sync.WaitGroup
@@ -25,13 +31,16 @@ func main() {
 			for {
 				mem := pool.Alloc(1)
 				if mem != nil {
-					if _, ok := addrs[unsafe.Pointer(&mem.Data[0])]; ok {
+					addrs.Lock()
+					if _, ok := addrs.addrs[unsafe.Pointer(&mem.Data[0])]; ok {
 						fmt.Printf("%dth goroutine: addr %p is using by other goroutine!\n", num, mem.Data)
-						fmt.Printf("%dth current addrs %v\n", num, addrs)
+						fmt.Printf("%dth current addrs %v\n", num, addrs.addrs)
+						addrs.Unlock()
 						break
 					} else {
-						addrs[unsafe.Pointer(&mem.Data[0])] = struct{}{}
+						addrs.addrs[unsafe.Pointer(&mem.Data[0])] = struct{}{}
 					}
+					addrs.Unlock()
 
 					mem.Data[0] = byte(num)
 					// simulate task running
@@ -42,7 +51,9 @@ func main() {
 						break
 					}
 
-					delete(addrs, unsafe.Pointer(&mem.Data[0]))
+					addrs.Lock()
+					delete(addrs.addrs, unsafe.Pointer(&mem.Data[0]))
+					addrs.Unlock()
 					pool.Free(mem)
 				}
 			}
